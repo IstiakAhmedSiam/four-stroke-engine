@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stroke &amp; Cycle — Engine Simulation + Formulas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+
+  :root{
+    --bg: #FFFFFF;
+    --bg-2: #F3F6F6;
+    --panel: #FFFFFF;
+    --panel-line: #D7DEDE;
+    --ink: #16222A;
+    --ink-soft: #56676C;
+    --ink-faint: #8B9A9D;
+    --intake: #2679A6;
+    --intake-soft: #E3EFF4;
+    --compress: #8A6D3B;
+    --power: #D8492F;
+    --power-soft: #FBE9E3;
+    --exhaust: #5B6B76;
+    --grid: #D4DBDB;
+    --paper-dot: #E3E9E9;
+    --radius: 10px;
+  }
+  :root:not([data-theme="light"]) {
+    /* placeholder dark tokens — page is locked to light via data-theme, kept here only to satisfy the guard */
+  }
+  :root[data-theme="dark"]{
+    --bg:#0F1416; --bg-2:#141B1D; --panel:#1A2225; --panel-line:#2B363A;
+    --ink:#E7EEEE; --ink-soft:#A9B7BA; --ink-faint:#6E7C7F;
+  }
+
+  *{ box-sizing: border-box; }
+  html,body{ height:100%; }
+  body{
+    margin:0;
+    background: var(--bg);
+    background-image:
+      radial-gradient(var(--paper-dot) 1px, transparent 1px);
+    background-size: 22px 22px;
+    color: var(--ink);
+    font-family:'Space Grotesk', system-ui, sans-serif;
+    font-size: 22px;
+    line-height: 1.45;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  html{ scroll-padding-top: env(safe-area-inset-top, 0px); }
+
+  .mono{ font-family:'IBM Plex Mono', ui-monospace, monospace; }
+
+  .wrap{
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 28px 20px 60px;
+  }
+
+  /* ---- layout ---- */
+  .grid{
+    display:grid;
+    grid-template-columns: 1.15fr 1fr;
+    gap: 22px;
+    align-items: start;
+  }
+  @media (max-width: 900px){
+    .grid{ grid-template-columns: 1fr; }
+  }
+
+  .panel{
+    background: var(--panel);
+    border: 1.5px solid var(--panel-line);
+    border-radius: var(--radius);
+    padding: 20px;
+  }
+  .panel + .panel{ margin-top: 20px; }
+
+  .panel h2{
+    font-size: 18px;
+    text-transform: none;
+    letter-spacing: 0.01em;
+    color: var(--ink-soft);
+    margin: 0 0 14px;
+    font-weight: 600;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .panel h2 .swatch{
+    width:10px; height:10px; border-radius:2px; display:inline-block;
+  }
+
+  /* ---- engine svg ---- */
+  .engine-stage{
+    width: 100%;
+    aspect-ratio: 420 / 512;
+    max-height: 580px;
+    margin: 0 auto;
+    display:block;
+  }
+
+  .stroke-label{
+    text-align: center;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    margin: 6px 0 14px;
+  }
+
+  /* ---- controls ---- */
+  .ctrl-row{
+    display:flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 18px;
+  }
+  .ctrl-row:last-child{ margin-bottom: 0; }
+  .ctrl-label{
+    display:flex;
+    justify-content: space-between;
+    align-items:baseline;
+    font-size: 19px;
+    font-weight: 600;
+  }
+  .ctrl-label .val{
+    font-size: 20px;
+    color: var(--power);
+    font-weight: 600;
+  }
+  input[type=range]{
+    -webkit-appearance:none;
+    appearance:none;
+    width:100%;
+    height: 6px;
+    border-radius: 4px;
+    background: var(--grid);
+    outline:none;
+    margin-top: 6px;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;
+    width: 20px; height:20px;
+    border-radius:50%;
+    background: var(--ink);
+    border: 3px solid var(--panel);
+    box-shadow: 0 0 0 1.5px var(--ink);
+    cursor:pointer;
+  }
+  input[type=range]::-moz-range-thumb{
+    width: 20px; height:20px;
+    border-radius:50%;
+    background: var(--ink);
+    border: 3px solid var(--panel);
+    box-shadow: 0 0 0 1.5px var(--ink);
+    cursor:pointer;
+  }
+
+  .btn-row{
+    display:flex;
+    gap:10px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+  }
+  button.act{
+    font-family:inherit;
+    font-size: 19px;
+    font-weight: 600;
+    padding: 10px 18px;
+    border-radius: 7px;
+    border: 2px solid var(--ink);
+    background: var(--ink);
+    color: var(--bg);
+    cursor:pointer;
+  }
+  button.act.secondary{
+    background: var(--panel);
+    color: var(--ink);
+  }
+  button.act:active{ transform: translateY(1px); }
+
+  /* ---- readout grid ---- */
+  .readouts{
+    display:grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-top: 4px;
+  }
+  .gauge{
+    border: 1.5px solid var(--panel-line);
+    border-radius: 8px;
+    padding: 12px 14px;
+    background: var(--bg);
+  }
+  .gauge .g-label{
+    font-size: 15px;
+    color: var(--ink-soft);
+    text-transform: none;
+    margin-bottom: 4px;
+  }
+  .gauge .g-val{
+    font-size: 27px;
+    font-weight: 600;
+  }
+  .gauge .g-unit{
+    font-size: 16px;
+    color: var(--ink-faint);
+    margin-left: 4px;
+  }
+
+  /* ---- pv diagram ---- */
+  .pv-stage{
+    width:100%;
+    height: auto;
+    display:block;
+  }
+
+  .state-table{
+    width:100%;
+    border-collapse: collapse;
+    margin-top: 14px;
+    font-size: 18px;
+  }
+  .state-table th, .state-table td{
+    text-align:right;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--panel-line);
+  }
+  .state-table th:first-child, .state-table td:first-child{
+    text-align:left;
+  }
+  .state-table th{
+    color: var(--ink-soft);
+    font-weight: 600;
+    font-size: 15px;
+  }
+
+
+  /* ---- page tabs ---- */
+  .tabs{ position:sticky; top:0; z-index:20; display:flex; gap:8px; justify-content:center;
+    padding:10px 14px; background:var(--bg); border-bottom:1.5px solid var(--panel-line); }
+  .tab{ font-family:inherit; font-size:18px; font-weight:600; padding:8px 20px; border-radius:7px;
+    border:2px solid var(--ink); background:var(--panel); color:var(--ink); cursor:pointer; }
+  .tab[aria-selected="true"]{ background:var(--ink); color:var(--bg); }
+  .page[hidden]{ display:none; }
+
+  /* ---- formula page ---- */
+  .eq-wrap{ max-width:900px; margin:0 auto; padding:28px 20px 60px; }
+  .eq-wrap h1{ font-size:30px; margin:0 0 6px; }
+  .eq-wrap .sub{ color:var(--ink-soft); font-size:18px; margin:0 0 22px; }
+  .eq-card{ background:var(--panel); border:1.5px solid var(--panel-line); border-radius:var(--radius);
+    padding:14px 20px 16px; margin-bottom:14px; overflow-x:auto; }
+  .eq-name{ font-size:15px; font-weight:600; color:var(--ink-soft); margin-bottom:8px; }
+  .eq{ font-family:'Times New Roman', Georgia, serif; font-style:italic; font-size:30px; white-space:nowrap; }
+  .eq .up{ font-style:normal; }
+  .fr{ display:inline-flex; flex-direction:column; align-items:center; vertical-align:middle; margin:0 4px; }
+  .fr > span:first-child{ border-bottom:1.5px solid var(--ink); padding:0 4px 2px; }
+  .fr > span:last-child{ padding:2px 4px 0; }
+  .legend{ font-size:18px; color:var(--ink-soft); line-height:1.6; margin-top:22px; }
+  .legend b{ color:var(--ink); }
+
+
+  .calc{ border-top:1.5px dashed var(--panel-line); margin-top:12px; padding-top:10px;
+    font-family:'IBM Plex Mono', ui-monospace, monospace; font-size:17px; line-height:1.75; color:var(--ink-soft); }
+  .calc b{ color:var(--power); font-weight:600; }
+  .calc-h{ font-family:'Space Grotesk', system-ui, sans-serif; font-size:14px; font-weight:600;
+    color:var(--ink-faint); margin-bottom:4px; letter-spacing:0.02em; }
+  .calc sub, .calc sup{ font-size:0.75em; }
+  .eq-card{ overflow-x:auto; }
+</style>
+</head>
+<body>
+<nav class="tabs" role="tablist">
+  <button class="tab" id="tab-sim" role="tab" aria-selected="true" data-page="sim">1 · Simulation</button>
+  <button class="tab" id="tab-eq" role="tab" aria-selected="false" data-page="eq">2 · Formulas</button>
+</nav>
+<section id="page-sim" class="page">
+<div class="wrap">
+
+  <div class="grid">
+
+    <!-- LEFT: engine + animation controls -->
+    <div>
+      <div class="panel">
+        <svg id="engineSvg" class="engine-stage" viewBox="0 0 420 512" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="metalV" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#F5F7F8"/>
+              <stop offset="55%" stop-color="#D3D9DB"/>
+              <stop offset="100%" stop-color="#AEB7BA"/>
+            </linearGradient>
+            <linearGradient id="pistonGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#F8FAFB"/>
+              <stop offset="45%" stop-color="#DCE1E3"/>
+              <stop offset="100%" stop-color="#B7C0C2"/>
+            </linearGradient>
+            <linearGradient id="cylGrad" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color="#EAEDEE"/>
+              <stop offset="10%" stop-color="#FCFDFD"/>
+              <stop offset="50%" stop-color="#E1E5E6"/>
+              <stop offset="90%" stop-color="#FCFDFD"/>
+              <stop offset="100%" stop-color="#EAEDEE"/>
+            </linearGradient>
+            <radialGradient id="crankGrad" cx="35%" cy="30%" r="75%">
+              <stop offset="0%" stop-color="#F2F4F5"/>
+              <stop offset="60%" stop-color="#C7CED0"/>
+              <stop offset="100%" stop-color="#959EA1"/>
+            </radialGradient>
+            <linearGradient id="rodGrad" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color="#B7BFC1"/>
+              <stop offset="50%" stop-color="#F0F2F3"/>
+              <stop offset="100%" stop-color="#A6AFB1"/>
+            </linearGradient>
+            <filter id="softShadow" x="-40%" y="-40%" width="180%" height="180%">
+              <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#16222A" flood-opacity="0.28"/>
+            </filter>
+            <marker id="dimArrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 Z" fill="var(--ink-faint)"/>
+            </marker>
+            <marker id="arrowBlue" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M0,0 L10,5 L0,10 Z" fill="var(--intake)"/>
+            </marker>
+            <marker id="arrowRed" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M0,0 L10,5 L0,10 Z" fill="#C23B3B"/>
+            </marker>
+            <marker id="rotArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path d="M0,0 L10,5 L0,10 Z" fill="var(--intake)"/>
+            </marker>
+          </defs>
+
+          <!-- TDC / BDC + stroke dimension -->
+          <line x1="60" y1="90" x2="140" y2="90" stroke="var(--ink-faint)" stroke-width="1" stroke-dasharray="3 4"/>
+          <line x1="60" y1="328" x2="140" y2="328" stroke="var(--ink-faint)" stroke-width="1" stroke-dasharray="3 4"/>
+          <line x1="60" y1="92" x2="60" y2="326" stroke="var(--ink-faint)" stroke-width="1.5" marker-start="url(#dimArrow)" marker-end="url(#dimArrow)"/>
+          <text x="66" y="86" font-size="13" fill="var(--ink-soft)" font-family="'IBM Plex Mono',monospace">TDC</text>
+          <text x="66" y="342" font-size="13" fill="var(--ink-soft)" font-family="'IBM Plex Mono',monospace">BDC</text>
+          <text x="34" y="209" font-size="12" fill="var(--ink-faint)" font-family="'IBM Plex Mono',monospace" text-anchor="middle" transform="rotate(-90 34 209)">stroke 86.0 mm</text>
+
+          <!-- cylinder head -->
+          <rect x="115" y="40" width="210" height="34" rx="4" fill="url(#metalV)" stroke="var(--ink)" stroke-width="2.5"/>
+
+          <!-- intake valve -->
+          <g id="intakeValve">
+            <text x="152" y="30" font-size="14" font-weight="700" fill="var(--intake)" font-family="'Space Grotesk',sans-serif" text-anchor="middle">IN</text>
+            <line x1="152" y1="35" x2="152" y2="50" stroke="var(--intake)" stroke-width="2.5" marker-end="url(#arrowBlue)"/>
+            <rect x="139" y="52" width="26" height="10" rx="2" fill="var(--intake)"/>
+            <line x1="152" y1="52" x2="152" y2="90" stroke="var(--intake)" stroke-width="6" stroke-linecap="round"/>
+          </g>
+          <!-- exhaust valve -->
+          <g id="exhaustValve">
+            <text x="272" y="30" font-size="14" font-weight="700" fill="#C23B3B" font-family="'Space Grotesk',sans-serif" text-anchor="middle">EX</text>
+            <line x1="272" y1="50" x2="272" y2="35" stroke="#C23B3B" stroke-width="2.5" marker-end="url(#arrowRed)"/>
+            <rect x="259" y="52" width="26" height="10" rx="2" fill="#C23B3B"/>
+            <line x1="272" y1="52" x2="272" y2="90" stroke="#C23B3B" stroke-width="6" stroke-linecap="round"/>
+          </g>
+
+          <!-- spark plug -->
+          <text x="220" y="30" font-size="12" font-weight="700" fill="var(--ink-soft)" font-family="'Space Grotesk',sans-serif" text-anchor="middle" letter-spacing="0.06em">PLUG</text>
+          <g id="ignitor" transform="translate(220,60)">
+            <rect x="-4" y="-16" width="8" height="14" rx="1.5" fill="url(#metalV)" stroke="var(--ink)" stroke-width="1.5"/>
+            <line x1="0" y1="-2" x2="0" y2="10" stroke="var(--ink)" stroke-width="2.5"/>
+          </g>
+
+          <!-- combustion flash: expanding shockwave + radiating sparks + hot core -->
+          <g id="flameBurst">
+            <circle id="flameRing" cx="220" cy="70" r="6" fill="none" stroke="#FF8A3D" stroke-width="3" opacity="0"/>
+            <g id="flameRays" opacity="0">
+              <line class="ray" x1="220" y1="70" x2="220" y2="60" stroke="#FFB454" stroke-width="2.5" stroke-linecap="round"/>
+              <line class="ray" x1="220" y1="70" x2="220" y2="60" stroke="#FFB454" stroke-width="2.5" stroke-linecap="round"/>
+              <line class="ray" x1="220" y1="70" x2="220" y2="60" stroke="#FFB454" stroke-width="2.5" stroke-linecap="round"/>
+              <line class="ray" x1="220" y1="70" x2="220" y2="60" stroke="#FFB454" stroke-width="2.5" stroke-linecap="round"/>
+              <line class="ray" x1="220" y1="70" x2="220" y2="60" stroke="#FFB454" stroke-width="2.5" stroke-linecap="round"/>
+              <line class="ray" x1="220" y1="70" x2="220" y2="60" stroke="#FFB454" stroke-width="2.5" stroke-linecap="round"/>
+              <line class="ray" x1="220" y1="70" x2="220" y2="60" stroke="#FFB454" stroke-width="2.5" stroke-linecap="round"/>
+              <line class="ray" x1="220" y1="70" x2="220" y2="60" stroke="#FFB454" stroke-width="2.5" stroke-linecap="round"/>
+            </g>
+            <circle id="flameCore" cx="220" cy="70" r="4" fill="#FFEA9E" opacity="0"/>
+          </g>
+
+          <!-- cylinder walls -->
+          <rect x="140" y="74" width="160" height="300" fill="url(#cylGrad)" stroke="var(--ink)" stroke-width="2.5"/>
+          <!-- gas volume (fill dynamically sized) -->
+          <rect id="gasFill" x="143" y="90" width="154" height="30" fill="var(--intake-soft)"/>
+          <rect id="flashOverlay" x="143" y="90" width="154" height="30" fill="#FFF7DB" opacity="0"/>
+          <!-- clearance divider hint line -->
+          <line x1="140" y1="104" x2="300" y2="104" stroke="var(--ink-faint)" stroke-width="1" stroke-dasharray="3 4"/>
+
+          <!-- piston -->
+          <g id="piston" filter="url(#softShadow)">
+            <rect x="144" y="0" width="152" height="46" rx="3" fill="url(#pistonGrad)" stroke="var(--ink)" stroke-width="2.5"/>
+            <line x1="144" y1="14" x2="296" y2="14" stroke="#8E9799" stroke-width="2"/>
+            <line x1="144" y1="26" x2="296" y2="26" stroke="#8E9799" stroke-width="2"/>
+            <circle cx="220" cy="38" r="6" fill="#8E9799" stroke="var(--ink)" stroke-width="1.5"/>
+          </g>
+
+          <!-- con rod -->
+          <line id="rod" x1="220" y1="0" x2="220" y2="420" stroke="url(#rodGrad)" stroke-width="9" stroke-linecap="round"/>
+
+          <!-- crank -->
+          <circle cx="220" cy="440" r="46" fill="url(#crankGrad)" stroke="var(--panel-line)" stroke-width="3" filter="url(#softShadow)"/>
+          <path d="M264,410 A46,46 0 0 1 264,470" fill="none" stroke="var(--intake)" stroke-width="2.5" marker-end="url(#rotArrow)"/>
+          <circle cx="220" cy="440" r="7" fill="var(--ink)"/>
+          <circle id="crankPin" cx="220" cy="394" r="9" fill="var(--ink)" stroke="#fff" stroke-width="1.5"/>
+        </svg>
+
+        <div class="stroke-label" id="strokeLabel">INTAKE STROKE</div>
+
+        <div class="ctrl-row" style="margin-top:6px;">
+          <div class="ctrl-label">Animation speed <span class="val mono" id="animSpeedVal">120°/s</span></div>
+          <input type="range" id="animSpeed" min="20" max="320" step="5" value="120">
+        </div>
+
+        <div class="btn-row">
+          <button class="act" id="btnPlay">▶ Play</button>
+          <button class="act secondary" id="btnStep">Step ▶|</button>
+          <button class="act secondary" id="btnReset">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: T-S diagram -->
+    <div>
+      <div class="panel">
+        <h2><span class="swatch" style="background:var(--power);"></span>Temperature – Entropy diagram</h2>
+        <svg id="tsSvg" class="pv-stage" viewBox="0 0 420 340" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+</section>
+<section id="page-eq" class="page" hidden>
+<div class="eq-wrap">
+  <h1>Governing formulas</h1>
+  <p class="sub">Otto cycle equations used with the four-stroke engine simulation.</p>
+<div class="eq-card"><div class="eq-name">Symbols</div><div class="legend" style="margin-top:0">
+    <b>B</b> bore · <b>L</b> stroke · <b>V<sub>c</sub></b> clearance volume · <b>γ</b> specific heat ratio ·
+    <b>c<sub>v</sub></b> specific heat at constant volume · <b>q<sub>in</sub></b> heat added per unit mass ·
+    <b>W<sub>net</sub></b> net work per cylinder per cycle · <b>n<sub>cyl</sub></b> number of cylinders ·
+    <b>N</b> engine speed (rpm).<br>
+    The factor 120 = 60 s/min × 2 revolutions per power stroke (four-stroke engine).
+</div></div>
+<div class="eq-card"><div class="eq-name">Data used in the sample calculations</div><div class="calc" style="border-top:none;margin-top:0;padding-top:0;">r = 10 · T<sub>1</sub> = 320 K · P<sub>1</sub> = 100 kPa · γ = 1.4 · c<sub>v</sub> = 0.718 kJ/kg·K · c<sub>p</sub> = 1.005 kJ/kg·K (R = c<sub>p</sub> − c<sub>v</sub> = 0.287 kJ/kg·K)<br>q<sub>in</sub> = 900 kJ/kg · B = L = 86 mm · n<sub>cyl</sub> = 4 · N = 2500 rpm</div></div>
+<div class="eq-card"><div class="eq-name">Swept volume</div><div class="eq">V<sub>s</sub> = <span class="fr"><span>π</span><span>4</span></span> B<sup>2</sup> L</div><div class="calc"><div class="calc-h">Sample calculation</div>V<sub>s</sub> = (π/4) × (8.6 cm)² × (8.6 cm)<br>V<sub>s</sub> = 0.7854 × 73.96 × 8.6 = <b>499.6 cm³</b><br>Clearance: V<sub>c</sub> = V<sub>s</sub>/(r − 1) = 499.6/9 = 55.5 cm³</div></div>
+<div class="eq-card"><div class="eq-name">Compression ratio</div><div class="eq">r = <span class="fr"><span>V<sub>BDC</sub></span><span>V<sub>TDC</sub></span></span> = <span class="fr"><span>V<sub>s</sub> + V<sub>c</sub></span><span>V<sub>c</sub></span></span></div><div class="calc"><div class="calc-h">Sample calculation</div>V<sub>BDC</sub> = V<sub>s</sub> + V<sub>c</sub> = 499.6 + 55.5 = 555.1 cm³<br>V<sub>TDC</sub> = V<sub>c</sub> = 55.5 cm³<br>r = 555.1 / 55.5 = <b>10.0</b></div></div>
+<div class="eq-card"><div class="eq-name">Temperature after compression</div><div class="eq">T<sub>2</sub> = T<sub>1</sub> r<sup>γ−1</sup></div><div class="calc"><div class="calc-h">Sample calculation</div>T<sub>2</sub> = 320 × 10<sup>0.4</sup> = 320 × 2.5119<br>T<sub>2</sub> = <b>803.8 K</b></div></div>
+<div class="eq-card"><div class="eq-name">Temperature after heat addition</div><div class="eq">T<sub>3</sub> = T<sub>2</sub> + <span class="fr"><span>q<sub>in</sub></span><span>c<sub>v</sub></span></span></div><div class="calc"><div class="calc-h">Sample calculation</div>q<sub>in</sub>/c<sub>v</sub> = 900 / 0.718 = 1253.5 K<br>T<sub>3</sub> = 803.8 + 1253.5 = <b>2057.3 K</b></div></div>
+<div class="eq-card"><div class="eq-name">Thermal efficiency</div><div class="eq">η<sub>th</sub> = 1 − <span class="fr"><span>1</span><span>r<sup>γ−1</sup></span></span></div><div class="calc"><div class="calc-h">Sample calculation</div>1 / r<sup>γ−1</sup> = 1 / 10<sup>0.4</sup> = 1 / 2.5119 = 0.3981<br>η<sub>th</sub> = 1 − 0.3981 = 0.6019 = <b>60.2 %</b></div></div>
+<div class="eq-card"><div class="eq-name">Indicated mean effective pressure</div><div class="eq">IMEP = <span class="fr"><span>W<sub>net</sub></span><span>V<sub>s</sub></span></span></div><div class="calc"><div class="calc-h">Sample calculation</div>Mass per cylinder: m = P<sub>1</sub>V<sub>1</sub>/(R T<sub>1</sub>) = (100 × 0.000555) / (0.287 × 320) = 6.044×10⁻⁴ kg<br>Net work per kg: w<sub>net</sub> = η<sub>th</sub> q<sub>in</sub> = 0.6019 × 900 = 541.7 kJ/kg<br>W<sub>net</sub> = m w<sub>net</sub> = 6.044×10⁻⁴ × 541.7 = 0.3274 kJ<br>IMEP = 0.3274 kJ / 499.6 cm³ = <b>655.4 kPa = 6.55 bar</b></div></div>
+<div class="eq-card"><div class="eq-name">Indicated power</div><div class="eq">W&#775;<sub>i</sub> = IMEP · V<sub>s</sub> · n<sub>cyl</sub> · <span class="fr"><span>N</span><span>120</span></span></div><div class="calc"><div class="calc-h">Sample calculation</div>IMEP · V<sub>s</sub> = 655.4 kPa × 0.000500 m³ = 0.3274 kJ<br>N/120 = 2500 / 120 = 20.833 cycles/s<br>W&#775;<sub>i</sub> = 0.3274 × 4 × 20.833 = <b>27.3 kW</b></div></div>
+</div>
+</section>
+<script>
+
+(function(){
+
+  // ---------- fixed operating point (Otto cycle, r = 10, qin = 900 kJ/kg) ----------
+  const GAMMA = 1.4, CV = 0.718, CP = 1.005; // kJ/kg.K
+  const P1 = 100;      // kPa
+  const T1 = 320;      // K
+  const BORE = 8.6, STROKE = 8.6; // cm
+  const VS = Math.PI/4 * BORE*BORE * STROKE; // cm^3 swept volume, single cylinder
+  const CYLINDERS = 4;
+  const cycle = 'otto';
+  const r = 10;
+  const qin = 900;
+  const rpm = 2500;
+
+  // crank-slider geometry (normalized units for kinematics, independent of VS)
+  const CRANK_R = 1, ROD_L = 3.3;
+
+  const els = {
+    animSpeed: document.getElementById('animSpeed'),
+    animSpeedVal: document.getElementById('animSpeedVal'),
+    btnPlay: document.getElementById('btnPlay'),
+    btnStep: document.getElementById('btnStep'),
+    btnReset: document.getElementById('btnReset'),
+    piston: document.getElementById('piston'),
+    rod: document.getElementById('rod'),
+    crankPin: document.getElementById('crankPin'),
+    gasFill: document.getElementById('gasFill'),
+    flashOverlay: document.getElementById('flashOverlay'),
+    flameRing: document.getElementById('flameRing'),
+    flameCore: document.getElementById('flameCore'),
+    flameRays: document.getElementById('flameRays'),
+    intakeValve: document.getElementById('intakeValve'),
+    exhaustValve: document.getElementById('exhaustValve'),
+    strokeLabel: document.getElementById('strokeLabel'),
+    tsSvg: document.getElementById('tsSvg')
+  };
+
+  let animDegPerSec = 120;
+  let theta = 0;         // 0..720
+  let playing = false;
+  let lastT = null;
+
+  let derived = {};      // computed once for the fixed operating point
+  const rayEls = Array.from(document.querySelectorAll('#flameRays .ray'));
+
+  // ---------- kinematics ----------
+  function dNorm(thetaDeg){
+    const th = thetaDeg * Math.PI/180;
+    const s0 = CRANK_R + ROD_L;
+    const s = CRANK_R*Math.cos(th) + Math.sqrt(Math.max(0, ROD_L*ROD_L - CRANK_R*CRANK_R*Math.sin(th)*Math.sin(th)));
+    return (s0 - s) / (2*CRANK_R); // 0 at TDC, 1 at BDC
+  }
+
+  function volumeAt(thetaDeg){
+    return derived.Vc + VS * dNorm(thetaDeg);
+  }
+
+  // ---------- thermodynamics ----------
+  function recompute(){
+    const Vc = VS/(r-1);
+    const V1 = VS + Vc;
+    const T2 = T1 * Math.pow(r, GAMMA-1);
+    const P2 = P1 * Math.pow(r, GAMMA);
+
+    const T3 = T2 + qin/CV;
+    const P3 = P2 * (T3/T2);
+    const V3 = Vc;
+    const T4 = T3 * Math.pow(1/r, GAMMA-1);
+    const P4 = P3 * Math.pow(1/r, GAMMA);
+    const thetaCutoff = 360;
+
+    const qout = CV*(T4-T1);
+    const eta = 1 - qout/qin;
+    const s3 = CV*Math.log(T3/T2); // entropy rise 2→3 relative to state 1 (s1=s2=0)
+
+    derived = {Vc,V1,T2,P2,T3,P3,V3,T4,P4,thetaCutoff,qout,eta,s3};
+  }
+
+  function pressureAt(thetaDeg){
+    const t = ((thetaDeg % 720) + 720) % 720;
+    const V = volumeAt(t);
+    if (t < 180){                 // intake
+      return P1;
+    } else if (t < 360){          // compression
+      return P1 * Math.pow(derived.V1/V, GAMMA);
+    } else if (t < 540){          // power
+      if (t <= 360.0001) return derived.P3;
+      return derived.P3 * Math.pow(derived.Vc/V, GAMMA);
+    } else {                      // exhaust
+      return P1;
+    }
+  }
+
+  function tempAt(thetaDeg){
+    const V = volumeAt(thetaDeg);
+    const P = pressureAt(thetaDeg);
+    return T1 * (P*V) / (P1*derived.V1);
+  }
+
+  // current point on the closed T-s loop (s measured relative to state 1, where s1=s2=0)
+  function tsStateAt(thetaDeg){
+    const t = ((thetaDeg % 720) + 720) % 720;
+    if (t < 180 || t >= 540){
+      return { s: 0, T: T1 };                              // gas-exchange strokes sit at state 1
+    } else if (t < 360){
+      return { s: 0, T: tempAt(t) };                       // isentropic compression 1→2
+    } else if (t <= 368){
+      const p = (t-360)/8;                                 // fast constant-volume heat addition 2→3
+      return { s: p*derived.s3, T: derived.T2*Math.pow(derived.T3/derived.T2, p) };
+    } else {
+      return { s: derived.s3, T: tempAt(t) };               // isentropic expansion 3→4
+    }
+  }
+
+  els.animSpeed.addEventListener('input', e=>{
+    animDegPerSec = parseFloat(e.target.value);
+    els.animSpeedVal.textContent = animDegPerSec+'°/s';
+  });
+
+  els.btnPlay.addEventListener('click', ()=>{
+    playing = !playing;
+    els.btnPlay.textContent = playing ? '⏸ Pause' : '▶ Play';
+    lastT = null;
+    if (playing) requestAnimationFrame(tick);
+  });
+  els.btnStep.addEventListener('click', ()=>{
+    playing = false;
+    els.btnPlay.textContent = '▶ Play';
+    theta = (Math.floor(theta/180)+1)*180 % 720;
+    drawEngine();
+  });
+  els.btnReset.addEventListener('click', ()=>{
+    playing = false;
+    els.btnPlay.textContent = '▶ Play';
+    theta = 0;
+    drawEngine();
+  });
+
+  document.addEventListener('keydown', (e)=>{
+    if (['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) return;
+    if (e.code === 'Space'){ e.preventDefault(); els.btnPlay.click(); }
+    if (e.key === 's' || e.key === 'S'){ els.btnStep.click(); }
+  });
+
+  // ---------- animation loop ----------
+  function tick(ts){
+    if (!playing) return;
+    if (lastT === null) lastT = ts;
+    const dt = (ts - lastT)/1000;
+    lastT = ts;
+    theta = (theta + animDegPerSec*dt) % 720;
+    drawEngine();
+    requestAnimationFrame(tick);
+  }
+
+  // ---------- drawing: engine ----------
+  const STAGE = { top: 90, strokePx: 238, pistonH: 46 }; // pixel geometry inside the 400x500 viewbox
+
+  function drawEngine(){
+    const d = dNorm(theta); // 0..1
+    const pistonTopY = STAGE.top + d*STAGE.strokePx;
+    els.piston.setAttribute('transform', `translate(0, ${pistonTopY})`);
+
+    const pistonPinY = pistonTopY + STAGE.pistonH;
+    const crankCx = 220, crankCy = 440, crankRpx = 46;
+    const thRad = theta * Math.PI/180;
+    const pinX = crankCx + crankRpx*Math.sin(thRad);
+    const pinY = crankCy - crankRpx*Math.cos(thRad);
+    els.crankPin.setAttribute('cx', pinX);
+    els.crankPin.setAttribute('cy', pinY);
+    els.rod.setAttribute('x1', crankCx);
+    els.rod.setAttribute('y1', pistonPinY);
+    els.rod.setAttribute('x2', pinX);
+    els.rod.setAttribute('y2', pinY);
+
+    // gas fill: from cylinder head (y=90) down to piston top
+    const gasTop = 90;
+    const gasH = Math.max(4, pistonTopY - gasTop);
+    els.gasFill.setAttribute('y', gasTop);
+    els.gasFill.setAttribute('height', gasH);
+    els.flashOverlay.setAttribute('y', gasTop);
+    els.flashOverlay.setAttribute('height', gasH);
+
+    // color by pressure fraction
+    const P = pressureAt(theta);
+    const frac = Math.min(1, Math.max(0, (P - P1) / (derived.P3 - P1)));
+    els.gasFill.setAttribute('fill', mixColor(frac));
+
+    // valves
+    const t = ((theta%720)+720)%720;
+    const intakeOpen = t < 180;
+    const exhaustOpen = t >= 540;
+    els.intakeValve.setAttribute('opacity', intakeOpen ? 1 : 0.28);
+    els.exhaustValve.setAttribute('opacity', exhaustOpen ? 1 : 0.28);
+
+    // combustion flash: shockwave ring + radiating sparks + hot white core + cylinder flash
+    const A = 348, B = 382; // wide visible window around ignition at 360°
+    if (t >= A && t <= B){
+      const bp = (t-A)/(B-A);
+      const pulse = Math.sin(bp*Math.PI); // rises then falls
+      const col = flameColor(bp);
+      els.flameRing.setAttribute('r', (6+bp*48).toFixed(1));
+      els.flameRing.setAttribute('stroke-width', Math.max(0.5, 3-bp*2.3).toFixed(1));
+      els.flameRing.setAttribute('stroke', col);
+      els.flameRing.setAttribute('opacity', (pulse*0.85).toFixed(2));
+      els.flameCore.setAttribute('r', (4+pulse*11).toFixed(1));
+      els.flameCore.setAttribute('opacity', pulse.toFixed(2));
+      els.flameRays.setAttribute('opacity', pulse.toFixed(2));
+      const rayLen = 8+pulse*22;
+      rayEls.forEach((ln,i)=>{
+        const ang = (i*45)*Math.PI/180;
+        ln.setAttribute('x2', (220 + Math.sin(ang)*rayLen).toFixed(1));
+        ln.setAttribute('y2', (70 - Math.cos(ang)*rayLen).toFixed(1));
+        ln.setAttribute('stroke', col);
+      });
+      els.flashOverlay.setAttribute('opacity', (pulse*0.55).toFixed(2));
+    } else {
+      els.flameRing.setAttribute('opacity', 0);
+      els.flameCore.setAttribute('opacity', 0);
+      els.flameRays.setAttribute('opacity', 0);
+      els.flashOverlay.setAttribute('opacity', 0);
+    }
+
+    // stroke label
+    let label, color;
+    if (t < 180){ label = 'INTAKE STROKE'; color = 'var(--intake)'; }
+    else if (t < 360){ label = 'COMPRESSION STROKE'; color = 'var(--compress)'; }
+    else if (t < 540){ label = 'POWER STROKE'; color = 'var(--power)'; }
+    else { label = 'EXHAUST STROKE'; color = 'var(--exhaust)'; }
+    els.strokeLabel.textContent = label;
+    els.strokeLabel.style.color = color;
+
+    updateTsDot();
+  }
+
+  function flameColor(p){
+    // yellow-white -> orange -> deep red as the flame front develops
+    const c1=[255,224,138], c2=[255,122,58], c3=[184,58,42];
+    let a,b,f;
+    if (p<0.5){ a=c1; b=c2; f=p/0.5; } else { a=c2; b=c3; f=(p-0.5)/0.5; }
+    const rr=Math.round(a[0]+(b[0]-a[0])*f), gg=Math.round(a[1]+(b[1]-a[1])*f), bb=Math.round(a[2]+(b[2]-a[2])*f);
+    return `rgb(${rr},${gg},${bb})`;
+  }
+
+  function mixColor(frac){
+    // interpolate cool intake-blue -> hot power-orange
+    const c1 = [220,234,241], c2 = [251,229,222], c3=[216,73,47];
+    let a,b,f;
+    if (frac < 0.5){ a=c1; b=c2; f=frac/0.5; } else { a=c2; b=c3; f=(frac-0.5)/0.5; }
+    const rr = Math.round(a[0]+(b[0]-a[0])*f);
+    const gg = Math.round(a[1]+(b[1]-a[1])*f);
+    const bb = Math.round(a[2]+(b[2]-a[2])*f);
+    return `rgb(${rr},${gg},${bb})`;
+  }
+
+  // ---------- drawing: T-S diagram ----------
+  const TS = { x0:64, y0:280, w:330, h:240 }; // plot area inside 420x340 viewbox
+  let tsDotEl, tsScales = null;
+
+  function buildTS(){
+    const svg = els.tsSvg;
+    svg.innerHTML = '';
+    const T1v=T1, T2v=derived.T2, T3v=derived.T3, T4v=derived.T4, s3=derived.s3;
+    const Smin = -s3*0.12, Smax = s3*1.15;
+    const Tmin = T1v*0.85, Tmax = T3v*1.08;
+
+    function X(s){ return TS.x0 + (s-Smin)/(Smax-Smin) * TS.w; }
+    function Y(Tv){ return TS.y0 - (Tv-Tmin)/(Tmax-Tmin) * TS.h; }
+    tsScales = {X,Y};
+
+    const ns = 'http://www.w3.org/2000/svg';
+    function el(tag, attrs){ const e=document.createElementNS(ns,tag); for(const k in attrs) e.setAttribute(k,attrs[k]); return e; }
+
+    // axes
+    svg.appendChild(el('line',{x1:TS.x0,y1:TS.y0,x2:TS.x0+TS.w,y2:TS.y0,stroke:'var(--ink)','stroke-width':2}));
+    svg.appendChild(el('line',{x1:TS.x0,y1:TS.y0,x2:TS.x0,y2:TS.y0-TS.h,stroke:'var(--ink)','stroke-width':2}));
+    svg.appendChild(el('text',{x:TS.x0+TS.w/2,y:TS.y0+30,'text-anchor':'middle','font-size':15,fill:'var(--ink-soft)','font-family':"'Space Grotesk',sans-serif"})).textContent='Entropy (s)';
+    const ylab = el('text',{x:16,y:TS.y0-TS.h/2,'text-anchor':'middle','font-size':15,fill:'var(--ink-soft)','font-family':"'Space Grotesk',sans-serif",transform:`rotate(-90 16 ${TS.y0-TS.h/2})`});
+    ylab.textContent='Temperature (T)';
+    svg.appendChild(ylab);
+
+    // gridlines
+    for(let i=0;i<=4;i++){
+      const gv = Smin + (Smax-Smin)*i/4;
+      const gx = X(gv);
+      svg.appendChild(el('line',{x1:gx,y1:TS.y0,x2:gx,y2:TS.y0-TS.h,stroke:'var(--grid)','stroke-width':1}));
+      
+    }
+    for(let i=0;i<=4;i++){
+      const gT = Tmin + (Tmax-Tmin)*i/4;
+      const gy = Y(gT);
+      svg.appendChild(el('line',{x1:TS.x0,y1:gy,x2:TS.x0+TS.w,y2:gy,stroke:'var(--grid)','stroke-width':1}));
+      
+    }
+
+    // build the closed loop 1→2 (isentropic) → 3 (const-V heat add) → 4 (isentropic) → 1 (const-V heat reject)
+    let pts = [[0,T1v],[0,T2v]];
+    for (let i=1;i<=30;i++){ const p=i/30; pts.push([p*s3, T2v*Math.pow(T3v/T2v,p)]); }
+    pts.push([s3,T4v]);
+    for (let i=1;i<=30;i++){ const p=i/30; const Tv=T4v*Math.pow(T1v/T4v,p); pts.push([s3+CV*Math.log(Tv/T4v), Tv]); }
+
+    const path = pts.map((p,i)=> (i===0?'M':'L') + X(p[0]).toFixed(1) + ',' + Y(p[1]).toFixed(1)).join(' ') + ' Z';
+    svg.appendChild(el('path',{d:path, fill:'var(--power-soft)', opacity:0.5}));
+    svg.appendChild(el('path',{d:path, fill:'none', stroke:'var(--power)', 'stroke-width':2.5, 'stroke-linejoin':'round'}));
+
+    // state points 1..4
+    const statePts = [
+      {label:'1', s:0, T:T1v},
+      {label:'2', s:0, T:T2v},
+      {label:'3', s:s3, T:T3v},
+      {label:'4', s:s3, T:T4v}
+    ];
+    statePts.forEach(sp=>{
+      const cx=X(sp.s), cy=Y(sp.T);
+      svg.appendChild(el('circle',{cx,cy,r:4.5,fill:'var(--ink)'}));
+      svg.appendChild(el('text',{x:cx+8,y:cy-6,'font-size':15,fill:'var(--ink)','font-family':"'IBM Plex Mono',monospace",'font-weight':600})).textContent=sp.label;
+    });
+
+    // moving dot
+    tsDotEl = el('circle',{r:6, fill:'var(--intake)', stroke:'#fff','stroke-width':2});
+    svg.appendChild(tsDotEl);
+  }
+
+  function updateTsDot(){
+    if (!tsScales || !tsDotEl) return;
+    const st = tsStateAt(theta);
+    tsDotEl.setAttribute('cx', tsScales.X(st.s));
+    tsDotEl.setAttribute('cy', tsScales.Y(st.T));
+    tsDotEl.setAttribute('fill', flameColorForDot());
+  }
+
+  function flameColorForDot(){
+    const t = ((theta%720)+720)%720;
+    if (t>=348 && t<=382) return flameColor((t-348)/(382-348));
+    return 'var(--intake)';
+  }
+
+  // ---------- init ----------
+  recompute();
+  buildTS();
+  drawEngine();
+
+})();
+</script>
+<script>
+(function(){
+  var tabs = document.querySelectorAll('.tab');
+  var pages = { sim: document.getElementById('page-sim'), eq: document.getElementById('page-eq') };
+  function show(name){
+    if (!pages[name]) name = 'sim';
+    Object.keys(pages).forEach(function(k){ pages[k].hidden = (k !== name); });
+    tabs.forEach(function(t){ t.setAttribute('aria-selected', String(t.dataset.page === name)); });
+    if (name === 'eq'){
+      var b = document.getElementById('btnPlay');
+      if (b && b.textContent.indexOf('Pause') !== -1) b.click();
+    }
+    try { history.replaceState(null, '', '#' + name); } catch(e){}
+    window.scrollTo(0, 0);
+  }
+  tabs.forEach(function(t){ t.addEventListener('click', function(){ show(t.dataset.page); }); });
+  // block Space / S shortcuts of the simulation while the formula page is open
+  document.addEventListener('keydown', function(e){
+    if (!pages.eq.hidden) e.stopImmediatePropagation();
+  }, true);
+  show(location.hash === '#eq' ? 'eq' : 'sim');
+})();
+</script>
+</body>
+</html>
